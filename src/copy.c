@@ -161,13 +161,17 @@ sparse_copy (int src_fd, int dest_fd, char *buf, size_t buf_size,
              bool make_holes,
              char const *src_name, char const *dst_name,
              uintmax_t max_n_read, off_t *total_n_read,
-             bool *last_write_made_hole)
+             bool *last_write_made_hole, off_t src_total_size)
 {
   *last_write_made_hole = false;
   *total_n_read = 0;
 
+  int i=0;
+  int onePercentIterationCount=src_total_size/100/buf_size;
+
   while (max_n_read)
     {
+      i++;
       bool make_hole = false;
 
       ssize_t n_read = read (src_fd, buf, MIN (max_n_read, buf_size));
@@ -182,6 +186,15 @@ sparse_copy (int src_fd, int dest_fd, char *buf, size_t buf_size,
         break;
       max_n_read -= n_read;
       *total_n_read += n_read;
+
+      int percentage=(double)*total_n_read/src_total_size*100;
+      if(i%onePercentIterationCount==0 || percentage == 100) //at each 1%
+      {
+          printf("\r%ld KBs/%ld KBs %d%%",*total_n_read,src_total_size,percentage);
+          if(percentage == 100)
+	      printf("\n");
+          fflush(stdout);
+      }
 
       if (make_holes)
         {
@@ -412,7 +425,7 @@ extent_copy (int src_fd, int dest_fd, char *buf, size_t buf_size,
               if ( ! sparse_copy (src_fd, dest_fd, buf, buf_size,
                                   sparse_mode == SPARSE_ALWAYS,
                                   src_name, dst_name, ext_len, &n_read,
-                                  &wrote_hole_at_eof))
+                                  &wrote_hole_at_eof,src_total_size))
                 goto fail;
 
               dest_pos = ext_start + n_read;
@@ -1182,7 +1195,7 @@ copy_reg (char const *src_name, char const *dst_name,
       if ( ! sparse_copy (source_desc, dest_desc, buf, buf_size,
                           make_holes, src_name, dst_name,
                           UINTMAX_MAX, &n_read,
-                          &wrote_hole_at_eof)
+                          &wrote_hole_at_eof,src_open_sb.st_size)
            || (wrote_hole_at_eof
                && ftruncate (dest_desc, n_read) < 0))
         {
